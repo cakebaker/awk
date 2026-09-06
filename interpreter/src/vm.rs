@@ -344,7 +344,12 @@ impl<'a> Interpreter<'a> {
                     self.array_op(Place::new(arg, ty), metadata, |arr| arr.array_remove(&key))?;
                 }
                 Instruction::In { dest, lhs, rhs, tyr, tyl } => {
-                    let key = self.get_val(rhs, tyr, metadata, Value::to_string)?;
+                    let key = self.get_val(rhs, tyr, metadata, |v| {
+                        // TODO: cache type string repr instead of allocating.
+                        let mut buf = StdVec::with_capacity(v.string_size_hint());
+                        v.write_string(&mut buf);
+                        buf
+                    })?;
                     let place = Place::new(lhs, tyl);
                     let val = self.array_op(place, metadata, |arr| arr.has_array_elem(&key))?;
 
@@ -601,7 +606,7 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Join index register values with `SUBSEP` into an array key (gawk-compatible).
-    fn make_array_key(&mut self, start: Reg, end: Reg) -> String {
+    fn make_array_key(&mut self, start: Reg, end: Reg) -> StdVec<u8> {
         let range = self.registers.get_range(start..end, self.reg_offset());
         let mut buf = StdVec::new();
         for (i, value) in range.iter().enumerate() {
@@ -610,7 +615,7 @@ impl<'a> Interpreter<'a> {
             }
             value.write_string(&mut buf);
         }
-        String::from_utf8_lossy(&buf).into_owned()
+        buf
     }
 
     fn user_call(

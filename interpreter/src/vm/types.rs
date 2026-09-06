@@ -31,7 +31,7 @@ const fn likely(b: bool) -> bool {
 
 /// Shared array storage. AWK arrays are reference-counted (assignment of array
 /// names is not a deep copy); `Rc`/`RefCell` is enough while the VM is single-threaded.
-pub type ArrayMap<'a> = HashMap<String, Value<'a>, RandomState>;
+pub type ArrayMap<'a> = HashMap<Vec<u8>, Value<'a>, RandomState>;
 
 #[derive(Debug, Clone)]
 pub enum Value<'a> {
@@ -124,12 +124,12 @@ impl<'a> Value<'a> {
         Some(Rc::clone(arr))
     }
 
-    pub fn array_insert(&mut self, key: String, val: Self) -> Option<()> {
+    pub fn array_insert(&mut self, key: Vec<u8>, val: Self) -> Option<()> {
         self.as_array()?.borrow_mut().insert(key, val);
         Some(())
     }
 
-    pub fn array_remove(&mut self, key: &str) -> Option<()> {
+    pub fn array_remove(&mut self, key: &[u8]) -> Option<()> {
         self.as_array()?.borrow_mut().remove(key);
         Some(())
     }
@@ -139,16 +139,16 @@ impl<'a> Value<'a> {
         Some(())
     }
 
-    pub fn get_array_elem(&mut self, key: &str) -> Option<Self> {
+    pub fn get_array_elem(&mut self, key: &[u8]) -> Option<Self> {
         self.as_array()
             .map(|arr| arr.borrow().get(key).cloned().unwrap_or(Self::Untyped))
     }
 
-    pub fn has_array_elem(&mut self, key: &str) -> Option<bool> {
+    pub fn has_array_elem(&mut self, key: &[u8]) -> Option<bool> {
         self.as_array().map(|arr| arr.borrow().get(key).is_some())
     }
 
-    pub fn array_elem_aoa(&mut self, key: String) -> Option<Self> {
+    pub fn array_elem_aoa(&mut self, key: Vec<u8>) -> Option<Self> {
         self.as_array().map(|arr| {
             arr.borrow_mut()
                 .entry(key)
@@ -435,7 +435,7 @@ mod tests {
         match (&a, &b) {
             (Value::Array(left), Value::Array(right)) => {
                 left.borrow_mut().insert("k".into(), Value::Int(1));
-                assert_eq!(right.borrow().get("k"), Some(&Value::Int(1)));
+                assert_eq!(right.borrow().get(b"k".as_slice()), Some(&Value::Int(1)));
             }
             _ => panic!("expected Array values"),
         }

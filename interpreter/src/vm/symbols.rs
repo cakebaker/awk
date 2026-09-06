@@ -204,7 +204,7 @@ impl<'a> SymbolTable<'a> {
         let mut n = 0isize;
         for arg in args {
             map.insert(
-                n.to_string(),
+                n.to_string().into_bytes(),
                 Value::String(Cow::Owned(arg.as_ref().to_vec())),
             );
             n += 1;
@@ -648,9 +648,18 @@ mod tests {
             panic!("expected ARGV array");
         };
         let argv = argv.borrow();
-        assert_eq!(argv.get("0"), Some(&Value::String(b"awk".into())));
-        assert_eq!(argv.get("1"), Some(&Value::String(b"a.txt".into())));
-        assert_eq!(argv.get("2"), Some(&Value::String(b"b.txt".into())));
+        assert_eq!(
+            argv.get(b"0".as_slice()),
+            Some(&Value::String(b"awk".into()))
+        );
+        assert_eq!(
+            argv.get(b"1".as_slice()),
+            Some(&Value::String(b"a.txt".into()))
+        );
+        assert_eq!(
+            argv.get(b"2".as_slice()),
+            Some(&Value::String(b"b.txt".into()))
+        );
         assert_eq!(argv.len(), 3);
     }
 }

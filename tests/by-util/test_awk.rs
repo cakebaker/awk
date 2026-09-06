@@ -651,3 +651,11 @@ fn nf_inc_works() {
         .succeeds()
         .stdout_is("4 \n");
 }
+
+#[test]
+fn fs_empty_non_utf8_split() {
+    ucmd()
+        .arg(r#"BEGIN { FS = ""; $0 = "foo\xFF b🤪ar"; print $1, $2, $3, $4, $5, $6, $7, $8, $9 }"#)
+        .succeeds()
+        .stdout_is_bytes(b"f o o \xFF   b \xF0\x9F\xA4\xAA a r\n");
+}

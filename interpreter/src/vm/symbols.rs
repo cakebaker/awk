@@ -349,6 +349,7 @@ impl Record {
                     {
                         Ok(self.fs_char_split(char))
                     }
+                    "" if let ExecMode::Posix = mode => Ok(self.fs_empty_posix_split()),
                     "" => Ok(self.fs_all_split()),
                     s => self.fs_regex_split(s.as_bytes(), mode),
                 }
@@ -418,7 +419,25 @@ impl Record {
 
     fn fs_all_split(&mut self) -> &mut Vec<Span> {
         let (raw, buf) = self.init_fields();
-        buf.extend((0..raw.len()).map(to_span));
+        let mut offset = 0;
+
+        for chunk in raw.utf8_chunks() {
+            let (valid, invalid) = (chunk.valid(), chunk.invalid());
+            let f_valid = |(i, c): (usize, char)| Span::from(offset + i..offset + i + c.len_utf8());
+
+            buf.extend(valid.char_indices().map(f_valid));
+            offset += valid.len();
+
+            buf.extend((offset..offset + invalid.len()).map(to_span));
+            offset += invalid.len();
+        }
+        buf
+    }
+
+    fn fs_empty_posix_split(&mut self) -> &mut Vec<Span> {
+        let (raw, buf) = self.init_fields();
+        buf.reserve_exact(1);
+        buf.push(Span::from(0..raw.len()));
         buf
     }
 

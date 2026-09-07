@@ -106,6 +106,20 @@ pub struct SymbolTable<'a> {
 pub struct Record {
     raw: Vec<u8>,
     fields: Option<Vec<Span>>,
+    split_mode: SplitMode,
+}
+
+// TODO: add variants for overridden modes (GNU CSV ext) and/or to `ExecMode`.
+#[derive(Clone, Copy, Debug, Default)]
+enum SplitMode {
+    #[default]
+    FsWhitespace,
+    FsRegex,
+    FsSingleChar,
+    FsFieldPerChar,
+    FsPosixEmpty,
+    Fpat,
+    Fieldwidths,
 }
 
 impl<'a, T> RawSymbolTable<'a, T> {
@@ -324,6 +338,21 @@ impl Record {
         Ok(Value::Int(fields.len() as isize - 1))
     }
 
+    pub fn enable_fs_splitting(&mut self, fs: &Value, mode: ExecMode) {
+        self.split_mode = SplitMode::from_fs(fs, mode);
+        self.invalidate();
+    }
+
+    pub fn enable_fpat_splitting(&mut self) {
+        self.split_mode = SplitMode::Fpat;
+        self.invalidate();
+    }
+
+    pub fn enable_fieldwidths_splitting(&mut self) {
+        self.split_mode = SplitMode::Fieldwidths;
+        self.invalidate();
+    }
+
     /// Splits the fields if unsplit and grants access to the inner buffer of
     /// spans of the record.
     fn split_fields_raw(
@@ -331,34 +360,30 @@ impl Record {
         symbols: &mut SymbolTable,
         mode: ExecMode,
     ) -> Result<&mut Vec<Span>, RegexError> {
-        // TODO: trace FPAT/FIELDWIDTHS assignments.
         // TODO: string caching; non UTF-8 conversions
-        match self.fields {
-            Some(ref mut fields) => Ok(fields),
-            None if false => {
-                let fpat = symbols.fpat.to_string();
-                self.fpat_regex_split(fpat.as_bytes(), mode)
-            }
-            None if false => {
-                let _fieldwidths = symbols.fieldwidths.to_string();
-                todo!()
-            }
-            None => {
-                let fs = symbols.fs.to_string();
-                let mut fs_chars = fs.chars();
-                match &*fs {
-                    " " => Ok(self.fs_whitespace_split()),
-                    _ if let Some(char) = fs_chars.next()
-                        && fs_chars.next().is_none() =>
-                    {
-                        Ok(self.fs_char_split(char))
-                    }
-                    "" if let ExecMode::Posix = mode => Ok(self.fs_empty_posix_split()),
-                    "" => Ok(self.fs_all_split()),
-                    s => self.fs_regex_split(s.as_bytes(), mode),
+        Ok(if let Some(ref mut fields) = self.fields {
+            fields
+        } else {
+            match self.split_mode {
+                SplitMode::FsWhitespace => self.fs_whitespace_split(),
+                SplitMode::FsRegex => {
+                    return self.fs_regex_split(symbols.fs.to_string().as_bytes(), mode);
+                }
+                SplitMode::FsSingleChar => {
+                    self.fs_char_split(symbols.fs.to_string().chars().next().unwrap())
+                }
+                SplitMode::FsFieldPerChar => self.fs_all_split(),
+                SplitMode::FsPosixEmpty => self.fs_empty_posix_split(),
+                SplitMode::Fpat => {
+                    let fpat = symbols.fpat.to_string();
+                    return self.fpat_regex_split(fpat.as_bytes(), mode);
+                }
+                SplitMode::Fieldwidths => {
+                    let _fieldwidths = symbols.fieldwidths.to_string();
+                    todo!()
                 }
             }
-        }
+        })
     }
 
     fn init_fields(&mut self) -> (&mut Vec<u8>, &mut Vec<Span>) {
@@ -595,6 +620,18 @@ impl Record {
     pub fn write_new(&mut self) -> &mut Vec<u8> {
         self.clear();
         &mut self.raw
+    }
+}
+
+impl SplitMode {
+    fn from_fs(fs: &Value, mode: ExecMode) -> Self {
+        match &*fs.to_string() {
+            " " => Self::FsWhitespace,
+            fs if fs.chars().count() == 1 => Self::FsSingleChar,
+            "" if let ExecMode::Posix = mode => Self::FsPosixEmpty,
+            "" => Self::FsFieldPerChar,
+            _ => Self::FsRegex,
+        }
     }
 }
 

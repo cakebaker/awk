@@ -491,7 +491,10 @@ impl<'a> Interpreter<'a> {
                 let _ = self.record.resize(n, &mut self.symbols, self.mode);
                 return; // auto-updated
             }
-            BuiltInVar::Fs | BuiltInVar::Ofs => self.record.invalidate(),
+            BuiltInVar::Fs => self.record.enable_fs_splitting(&val, self.mode),
+            BuiltInVar::Fpat => self.record.enable_fpat_splitting(),
+            BuiltInVar::Fieldwidths => self.record.enable_fieldwidths_splitting(),
+            BuiltInVar::Ofs => self.record.invalidate(),
             _ => {}
         }
         *self.symbols.get_btin_mut(sys) = val;

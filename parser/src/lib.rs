@@ -884,6 +884,8 @@ impl<'a> Parser<'a> {
             Token::NrVariable => Ok(Variable::Nr),
             Token::NfVariable => Ok(Variable::Nf),
             Token::FsVariable => Ok(Variable::Fs),
+            Token::FpatVariable => Ok(Variable::Fpat),
+            Token::FieldwidthsVariable => Ok(Variable::Fieldwidths),
             Token::RsVariable => Ok(Variable::Rs),
             Token::OfsVariable => Ok(Variable::Ofs),
             Token::OrsVariable => Ok(Variable::Ors),

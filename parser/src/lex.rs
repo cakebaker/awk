@@ -259,6 +259,8 @@ impl TokenExt for Token<'_> {
                 | Token::NrVariable
                 | Token::NfVariable
                 | Token::FsVariable
+                | Token::FpatVariable
+                | Token::FieldwidthsVariable
                 | Token::RsVariable
                 | Token::OfsVariable
                 | Token::OrsVariable

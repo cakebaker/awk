@@ -539,8 +539,8 @@ fn lexer_test_control_flow_keywords() {
 #[test]
 fn lexer_test_builtin_variables() {
     let arena = Bump::new();
-    let str = b"NR FNR NF FS RS OFS ORS FILENAME ARGC ARGV SUBSEP ARGIND \
-                OFMT RSTART RLENGTH ENVIRON PROCINFO SYMTAB FUNCTAB";
+    let str = b"NR FNR NF FS FPAT FIELDWIDTHS RS OFS ORS FILENAME ARGC ARGV SUBSEP ARGIND OFMT \
+                RSTART RLENGTH ENVIRON PROCINFO SYMTAB FUNCTAB";
     assert_eq!(
         &lex(str, &arena, false, false),
         &[
@@ -548,6 +548,8 @@ fn lexer_test_builtin_variables() {
             Token::FnrVariable,
             Token::NfVariable,
             Token::FsVariable,
+            Token::FpatVariable,
+            Token::FieldwidthsVariable,
             Token::RsVariable,
             Token::OfsVariable,
             Token::OrsVariable,

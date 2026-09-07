@@ -76,6 +76,8 @@ pub enum Variable<'a> {
     Nr,
     Nf,
     Fs,
+    Fpat,
+    Fieldwidths,
     Rs,
     Ofs,
     Ors,

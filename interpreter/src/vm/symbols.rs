@@ -269,6 +269,8 @@ impl<'a> SymbolTable<'a> {
         match var {
             BuiltInVar::Nr => &self.nr,
             BuiltInVar::Fs => &self.fs,
+            BuiltInVar::Fpat => &self.fpat,
+            BuiltInVar::Fieldwidths => &self.fieldwidths,
             BuiltInVar::Rs => &self.rs,
             BuiltInVar::Ofs => &self.ofs,
             BuiltInVar::Ors => &self.ors,
@@ -289,6 +291,8 @@ impl<'a> SymbolTable<'a> {
         match var {
             BuiltInVar::Nr => &mut self.nr,
             BuiltInVar::Fs => &mut self.fs,
+            BuiltInVar::Fpat => &mut self.fpat,
+            BuiltInVar::Fieldwidths => &mut self.fieldwidths,
             BuiltInVar::Rs => &mut self.rs,
             BuiltInVar::Ofs => &mut self.ofs,
             BuiltInVar::Ors => &mut self.ors,

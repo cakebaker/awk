@@ -14,7 +14,7 @@ use std::{
 use atoi::atoi;
 
 use super::ExecMode;
-use crate::{Interpreter, vm::types::Value};
+use crate::{Interpreter, first_char, vm::types::Value};
 
 #[derive(Debug)]
 pub enum FilePath {
@@ -77,16 +77,19 @@ impl Interpreter<'_> {
         self.symbols.nr = &self.symbols.fnr + &Value::new_int(1);
         self.symbols.fnr = &self.symbols.fnr + &Value::new_int(1);
 
-        // TODO: cache string repr across all values, raw byte sequences.
-        let rs = self.symbols.rs.to_string();
+        let rs = self.symbols.rs.clone();
+        let rs_bytes = &*rs.to_bytes();
+        let first = first_char(rs_bytes);
+
         match self.mode {
             // Regex matching (GNU extension)
-            ExecMode::Uu | ExecMode::Gnu if rs.chars().count() > 1 => {
-                self.read_record_regex(rs.as_bytes(), reader)
+            ExecMode::Uu | ExecMode::Gnu if first.is_none() => {
+                self.read_record_regex(rs_bytes, reader)
             }
             // Single char matching
-            _ if let Some(c) = rs.chars().next() => {
-                self.symbols.rt = Value::new_string(rs.as_bytes().into());
+            // TODO: what if POSIX & invalid UTF-8?
+            _ if let Some(c) = first => {
+                self.symbols.rt.clone_from(&rs);
                 self.read_record_until_char(c, reader)
             }
             // Empty RS

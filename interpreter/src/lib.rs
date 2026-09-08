@@ -123,3 +123,24 @@ fn quacks_like_a_float(val: &str) -> Cow<'_, str> {
         format!("{val:?}").into()
     }
 }
+
+/// optimized routine for matching a string to a `[char; 1]`.
+fn exactly_one_char(slice: &[u8]) -> Option<char> {
+    match slice {
+        [0x00..=0x7F] | [0xC0..=0xDF, _] | [0xE0..=0xEF, _, _] | [0xF0..=0xF7, _, _, _] => {
+            str::from_utf8(slice).ok()?.chars().next()
+        }
+        _ => None,
+    }
+}
+
+/// optimized routine for the first character of a string.
+fn first_char(slice: &[u8]) -> Option<char> {
+    match slice {
+        [0x00..=0x7F, ..]
+        | [0xC0..=0xDF, _, ..]
+        | [0xE0..=0xEF, _, _, ..]
+        | [0xF0..=0xF7, _, _, _, ..] => str::from_utf8(slice).ok()?.chars().next(),
+        _ => None,
+    }
+}

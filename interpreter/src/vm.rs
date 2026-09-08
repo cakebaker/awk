@@ -347,12 +347,8 @@ impl<'a> Interpreter<'a> {
                     self.array_op(Place::new(arg, ty), metadata, |arr| arr.array_remove(&key))?;
                 }
                 Instruction::In { dest, lhs, rhs, tyr, tyl } => {
-                    let key = self.get_val(rhs, tyr, metadata, |v| {
-                        // TODO: cache type string repr instead of allocating.
-                        let mut buf = StdVec::with_capacity(v.string_size_hint());
-                        v.write_string(&mut buf);
-                        buf
-                    })?;
+                    let key = self.get_val(rhs, tyr, metadata, Value::clone)?;
+                    let key = key.to_bytes();
                     let place = Place::new(lhs, tyl);
                     let val = self.array_op(place, metadata, |arr| arr.has_array_elem(&key))?;
 

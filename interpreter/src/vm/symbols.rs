@@ -17,7 +17,7 @@ use parser::{Identifier, Span, SpanExt};
 use smallvec::SmallVec;
 
 use crate::{
-    ExecMode,
+    ExecMode, exactly_one_char,
     ir::{BuiltInVar, UserNonLocal},
     vm::{
         Function, regex,
@@ -118,7 +118,7 @@ enum SplitMode {
     #[default]
     FsWhitespace,
     FsRegex,
-    FsSingleChar,
+    FsSingleChar(char),
     FsFieldPerChar,
     FsPosixEmpty,
     Fpat,
@@ -363,26 +363,22 @@ impl Record {
         symbols: &mut SymbolTable,
         mode: ExecMode,
     ) -> Result<&mut Vec<Span>, RegexError> {
-        // TODO: string caching; non UTF-8 conversions
         Ok(if let Some(ref mut fields) = self.fields {
             fields
         } else {
             match self.split_mode {
                 SplitMode::FsWhitespace => self.fs_whitespace_split(),
                 SplitMode::FsRegex => {
-                    return self.fs_regex_split(symbols.fs.to_string().as_bytes(), mode);
+                    return self.fs_regex_split(&symbols.fs.to_bytes(), mode);
                 }
-                SplitMode::FsSingleChar => {
-                    self.fs_char_split(symbols.fs.to_string().chars().next().unwrap())
-                }
+                SplitMode::FsSingleChar(c) => self.fs_char_split(c),
                 SplitMode::FsFieldPerChar => self.fs_all_split(),
                 SplitMode::FsPosixEmpty => self.fs_empty_posix_split(),
                 SplitMode::Fpat => {
-                    let fpat = symbols.fpat.to_string();
-                    return self.fpat_regex_split(fpat.as_bytes(), mode);
+                    return self.fpat_regex_split(&symbols.fpat.to_bytes(), mode);
                 }
                 SplitMode::Fieldwidths => {
-                    let _fieldwidths = symbols.fieldwidths.to_string();
+                    let _fieldwidths = symbols.fieldwidths.to_bytes();
                     todo!()
                 }
             }
@@ -629,11 +625,11 @@ impl Record {
 
 impl SplitMode {
     fn from_fs(fs: &Value, mode: ExecMode) -> Self {
-        match &*fs.to_string() {
-            " " => Self::FsWhitespace,
-            fs if fs.chars().count() == 1 => Self::FsSingleChar,
-            "" if let ExecMode::Posix = mode => Self::FsPosixEmpty,
-            "" => Self::FsFieldPerChar,
+        match &*fs.to_bytes() {
+            b" " => Self::FsWhitespace,
+            fs if let Some(c) = exactly_one_char(fs) => Self::FsSingleChar(c),
+            b"" if let ExecMode::Posix = mode => Self::FsPosixEmpty,
+            b"" => Self::FsFieldPerChar,
             _ => Self::FsRegex,
         }
     }

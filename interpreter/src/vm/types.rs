@@ -4,6 +4,7 @@
 // files that was distributed with this source code.
 
 use std::{
+    borrow::Cow,
     cell::RefCell,
     cmp::Ordering,
     fmt::Display,
@@ -177,6 +178,16 @@ impl<'a> Value<'a> {
     #[inline(always)]
     pub fn string_size_hint(&self) -> usize {
         self.0.string_size_hint()
+    }
+
+    pub fn to_bytes(&self) -> Cow<'_, [u8]> {
+        if let Some(s) = self.as_str() {
+            s.into()
+        } else {
+            let mut buf = Vec::with_capacity(self.string_size_hint());
+            self.write_string(&mut buf);
+            buf.into()
+        }
     }
 
     pub fn matches_regex(&self, pattern: &Self, mode: ExecMode) -> bool {

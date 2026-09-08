@@ -530,7 +530,7 @@ impl<'a> Interpreter<'a> {
     /// Convenience wrapper to write a value at the current reg slice.
     #[inline(always)]
     fn write_reg(&mut self, dest: Reg, val: impl Into<Value<'a>>) {
-        self.registers.write(dest, self.reg_offset, val);
+        self.registers.write(dest, self.reg_offset, val.into());
     }
 
     /// Convenience wrapper to read a value from the current reg slice.
@@ -701,8 +701,8 @@ impl<'a> Registers<'a> {
         &mut self.0[ix]
     }
     #[inline(always)]
-    fn write(&mut self, dest: Reg, offset: IxWidth, src: impl Into<Value<'a>>) {
-        self.0[dest.0 as usize + offset as usize] = src.into();
+    fn write(&mut self, dest: Reg, offset: IxWidth, src: Value<'a>) {
+        self.0[dest.0 as usize + offset as usize] = src;
     }
     #[inline(always)]
     fn get_range(&self, regs: Range<Reg>, offset: IxWidth) -> &[Value<'a>] {

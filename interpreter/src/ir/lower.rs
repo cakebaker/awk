@@ -5,7 +5,7 @@
 
 mod utils;
 
-use std::{borrow::Cow, mem::replace, vec::Vec as StdVec};
+use std::{mem::replace, vec::Vec as StdVec};
 
 use bumpalo::{Bump, collections::Vec};
 use parser::{
@@ -443,7 +443,7 @@ impl<'a> CodeGen<'a> {
         match case {
             Atom::Regex(r) | Atom::TypedRegex(r) => {
                 let buf = &*self.arena.alloc_slice_copy(r.as_ref());
-                let (rhs, tyr) = TypedArg::new_cnt(self, Value::Regex(buf.into())).into_arg();
+                let (rhs, tyr) = TypedArg::new_cnt(self, Value::new_regex(buf.into())).into_arg();
                 self.emit(Instruction::Matches { dest: cmp, lhs, rhs, tyl, tyr });
             }
             atom => {
@@ -501,16 +501,16 @@ impl<'a> CodeGen<'a> {
             &Atom::Number(n) => TypedArg::new_immf(self, n),
             atom @ (Atom::String(s) | Atom::TypedRegex(s)) => {
                 let val = if matches!(atom, Atom::String(_)) {
-                    Value::String
+                    Value::new_string
                 } else {
-                    Value::Regex
+                    Value::new_regex
                 };
                 let buf = self.arena.alloc_slice_copy(s.as_ref());
-                TypedArg::new_cnt(self, val(Cow::Borrowed(buf)))
+                TypedArg::new_cnt(self, val(buf.into()))
             }
             Atom::Regex(r) => {
                 let buf = &*self.arena.alloc_slice_copy(r.as_ref());
-                let (rhs, tyr) = TypedArg::new_cnt(self, Value::Regex(buf.into())).into_arg();
+                let (rhs, tyr) = TypedArg::new_cnt(self, Value::new_regex(buf.into())).into_arg();
                 let (lhs, tyl) = TypedArg::new_imm(0).into_arg();
                 self.emit(Instruction::Matches { dest, rhs, lhs, tyr, tyl });
                 TypedArg::new_reg(dest)

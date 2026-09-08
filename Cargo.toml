@@ -29,7 +29,7 @@ bumpalo = { version = "3.20.2", features = ["boxed", "collections", "std", "allo
 hashbrown = "0.17.0"
 allocator-api2 = "0.4.0"
 ahash = "0.8.12"
-derive_more = { version = "2.1.1", features = ["from", "debug", "display"] }
+derive_more = { version = "2.1.1", features = ["full"] }
 regex = "1.12.3"
 ariadne = "0.6.0"
 atoi = "3.1.0"

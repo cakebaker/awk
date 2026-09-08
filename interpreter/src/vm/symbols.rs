@@ -5,7 +5,7 @@
 
 //! TODO: `SYMTAB`, `FUNCTAB`, `PROCINFO` magic, auto-set variables.
 
-use std::{borrow::Cow, cell::RefCell, iter::once, mem::take, rc::Rc};
+use std::{iter::once, mem::take};
 
 use ahash::RandomState;
 use bumpalo::Bump;
@@ -102,6 +102,9 @@ pub struct SymbolTable<'a> {
     pub(super) textdomain: Value<'a>,
 }
 
+// TODO: variable `NF` should probably live here. Maybe this should just live
+// inside the symbol table and also hold `FS`, `FPAT`, and `FIELDWIDTHS` but the
+// borrow checker might complain.
 #[derive(Debug, Default)]
 pub struct Record {
     raw: Vec<u8>,
@@ -179,31 +182,31 @@ impl<'a> SymbolTable<'a> {
             functions: RawSymbolTable::new_in(arena),
             // Static / well-known defaults; I/O-driven values stay at their
             // pre-input zeros/empties until the reader wires them up.
-            argc: Value::Int(0),
-            argind: Value::Int(0),
+            argc: Value::new_int(0),
+            argind: Value::new_int(0),
             argv: Value::empty_array(),
-            binmode: Value::Int(0),
-            convfmt: Value::String(b"%.6g".into()),
-            errno: Value::String(b"".into()),
-            fieldwidths: Value::String(b"".into()),
-            filename: Value::String(b"".into()),
-            fnr: Value::Int(0),
-            fpat: Value::String(b"[^[:space:]]+".into()),
-            fs: Value::String(b" ".into()),
-            ignorecase: Value::Int(0),
-            lint: Value::Int(0),
-            nr: Value::Int(0),
-            ofmt: Value::String(b"%.6g".into()),
-            ofs: Value::String(b" ".into()),
-            ors: Value::String(b"\n".into()),
-            prec: Value::Int(53),
-            roundmode: Value::String(b"N".into()),
-            rs: Value::String(b"\n".into()),
-            rt: Value::String(b"".into()),
-            rstart: Value::Int(0),
-            rlength: Value::Int(0),
-            subsep: Value::String(b"\x1c".into()),
-            textdomain: Value::String(b"messages".into()),
+            binmode: Value::new_int(0),
+            convfmt: Value::new_str(b"%.6g"),
+            errno: Value::new_str(b""),
+            fieldwidths: Value::new_str(b""),
+            filename: Value::new_str(b""),
+            fnr: Value::new_int(0),
+            fpat: Value::new_str(b"[^[:space:]]+"),
+            fs: Value::new_str(b" "),
+            ignorecase: Value::new_int(0),
+            lint: Value::new_int(0),
+            nr: Value::new_int(0),
+            ofmt: Value::new_str(b"%.6g"),
+            ofs: Value::new_str(b" "),
+            ors: Value::new_str(b"\n"),
+            prec: Value::new_int(53),
+            roundmode: Value::new_str(b"N"),
+            rs: Value::new_str(b"\n"),
+            rt: Value::new_str(b""),
+            rstart: Value::new_int(0),
+            rlength: Value::new_int(0),
+            subsep: Value::new_str(b"\x1c"),
+            textdomain: Value::new_str(b"messages"),
         }
     }
 
@@ -214,17 +217,17 @@ impl<'a> SymbolTable<'a> {
         I: IntoIterator<Item = S>,
         S: AsRef<[u8]>,
     {
-        let mut map = ArrayMap::with_hasher(RandomState::new());
-        let mut n = 0isize;
+        let mut map = ArrayMap::default();
+        let mut n = 0;
         for arg in args {
             map.insert(
                 n.to_string().into_bytes(),
-                Value::String(Cow::Owned(arg.as_ref().to_vec())),
+                Value::new_string(arg.as_ref().into()),
             );
             n += 1;
         }
-        self.argc = Value::Int(n);
-        self.argv = Value::Array(Rc::new(RefCell::new(map)));
+        self.argc = Value::new_int(n);
+        self.argv = Value::new_array(map);
     }
 
     #[inline(always)]
@@ -239,7 +242,7 @@ impl<'a> SymbolTable<'a> {
 
     #[inline(always)]
     pub fn register_user_var(&mut self, var: &Identifier, bump: &'a Bump) -> UserNonLocal {
-        self.user.register(var, Value::Untyped, bump)
+        self.user.register(var, Value::new_untyped(), bump)
     }
 
     #[inline(always)]
@@ -250,11 +253,11 @@ impl<'a> SymbolTable<'a> {
         };
         self.user.insert(
             ident,
-            if let Ok(n) = val.parse() {
+            if let Ok(n) = val.parse::<f64>() {
                 // TODO: use strnum
-                Value::Float(n)
+                Value::new_num(n)
             } else {
-                Value::String(bump.alloc_str(val).as_bytes().into())
+                Value::new_string(bump.alloc_str(val).as_bytes().into())
             },
         );
     }
@@ -335,7 +338,7 @@ impl Record {
         mode: ExecMode,
     ) -> Result<Value<'a>, RegexError> {
         let fields = self.split_fields_raw(symbols, mode)?;
-        Ok(Value::Int(fields.len() as isize - 1))
+        Ok(Value::new_int(fields.len() as i32 - 1))
     }
 
     pub fn enable_fs_splitting(&mut self, fs: &Value, mode: ExecMode) {
@@ -502,8 +505,8 @@ impl Record {
         mode: ExecMode,
     ) -> Result<Value<'a>, RegexError> {
         self.get_raw(n, symbols, mode).map(|val| match val {
-            Some(val) => Value::String(val.to_vec().into()),
-            None => Value::Unassigned,
+            Some(val) => Value::new_string(val.into()),
+            None => Value::new_unassigned(),
         })
     }
 
@@ -528,7 +531,8 @@ impl Record {
     /// Rewrites the entire record and invalidates the field splits.
     fn write_record_raw(&mut self, val: Value<'_>) {
         self.fields = None;
-        val.move_string_into(&mut self.raw);
+        self.raw.clear();
+        val.write_string(&mut self.raw);
     }
 
     /// Writes to a field and reconstructs the record. Check the doc comment of
@@ -670,31 +674,31 @@ mod tests {
         let arena = Bump::new();
         let st = SymbolTable::new_in(&arena);
 
-        assert_eq!(st.argc, Value::Int(0));
-        assert_eq!(st.argind, Value::Int(0));
-        assert!(matches!(st.argv, Value::Array(_)));
-        assert_eq!(st.binmode, Value::Int(0));
-        assert_eq!(st.convfmt, Value::String(b"%.6g".into()));
-        assert_eq!(st.errno, Value::String(b"".into()));
-        assert_eq!(st.fieldwidths, Value::String(b"".into()));
-        assert_eq!(st.filename, Value::String(b"".into()));
-        assert_eq!(st.fnr, Value::Int(0));
-        assert_eq!(st.fpat, Value::String(b"[^[:space:]]+".into()));
-        assert_eq!(st.fs, Value::String(b" ".into()));
-        assert_eq!(st.ignorecase, Value::Int(0));
-        assert_eq!(st.lint, Value::Int(0));
-        assert_eq!(st.nr, Value::Int(0));
-        assert_eq!(st.ofmt, Value::String(b"%.6g".into()));
-        assert_eq!(st.ofs, Value::String(b" ".into()));
-        assert_eq!(st.ors, Value::String(b"\n".into()));
-        assert_eq!(st.prec, Value::Int(53));
-        assert_eq!(st.roundmode, Value::String(b"N".into()));
-        assert_eq!(st.rs, Value::String(b"\n".into()));
-        assert_eq!(st.rt, Value::String(b"".into()));
-        assert_eq!(st.rstart, Value::Int(0));
-        assert_eq!(st.rlength, Value::Int(0));
-        assert_eq!(st.subsep, Value::String(b"\x1c".into()));
-        assert_eq!(st.textdomain, Value::String(b"messages".into()));
+        assert_eq!(st.argc, Value::new_int(0));
+        assert_eq!(st.argind, Value::new_int(0));
+        assert!(st.argv.is_array());
+        assert_eq!(st.binmode, Value::new_int(0));
+        assert_eq!(st.convfmt, Value::new_str(b"%.6g"));
+        assert_eq!(st.errno, Value::new_str(b""));
+        assert_eq!(st.fieldwidths, Value::new_str(b""));
+        assert_eq!(st.filename, Value::new_str(b""));
+        assert_eq!(st.fnr, Value::new_int(0));
+        assert_eq!(st.fpat, Value::new_str(b"[^[:space:]]+"));
+        assert_eq!(st.fs, Value::new_str(b" "));
+        assert_eq!(st.ignorecase, Value::new_int(0));
+        assert_eq!(st.lint, Value::new_int(0));
+        assert_eq!(st.nr, Value::new_int(0));
+        assert_eq!(st.ofmt, Value::new_str(b"%.6g"));
+        assert_eq!(st.ofs, Value::new_str(b" "));
+        assert_eq!(st.ors, Value::new_str(b"\n"));
+        assert_eq!(st.prec, Value::new_int(53));
+        assert_eq!(st.roundmode, Value::new_str(b"N"));
+        assert_eq!(st.rs, Value::new_str(b"\n"));
+        assert_eq!(st.rt, Value::new_str(b""));
+        assert_eq!(st.rstart, Value::new_int(0));
+        assert_eq!(st.rlength, Value::new_int(0));
+        assert_eq!(st.subsep, Value::new_str(b"\x1c"));
+        assert_eq!(st.textdomain, Value::new_str(b"messages"));
     }
 
     #[test]
@@ -703,23 +707,21 @@ mod tests {
         let mut st = SymbolTable::new_in(&arena);
         st.set_argc_argv([b"awk".as_slice(), b"a.txt", b"b.txt"]);
 
-        assert_eq!(st.argc, Value::Int(3));
-        let Value::Array(argv) = &st.argv else {
-            panic!("expected ARGV array");
-        };
-        let argv = argv.borrow();
+        assert_eq!(st.argc, Value::new_int(3));
+        assert!(st.argv.is_array());
+
         assert_eq!(
-            argv.get(b"0".as_slice()),
-            Some(&Value::String(b"awk".into()))
+            st.argv.get_array_elem(b"0"),
+            Some(Value::new_string(b"awk".as_slice().into()))
         );
         assert_eq!(
-            argv.get(b"1".as_slice()),
-            Some(&Value::String(b"a.txt".into()))
+            st.argv.get_array_elem(b"1"),
+            Some(Value::new_string(b"a.txt".as_slice().into()))
         );
         assert_eq!(
-            argv.get(b"2".as_slice()),
-            Some(&Value::String(b"b.txt".into()))
+            st.argv.get_array_elem(b"2"),
+            Some(Value::new_string(b"b.txt".as_slice().into()))
         );
-        assert_eq!(argv.len(), 3);
+        assert_eq!(st.argv.array_len(), Some(3));
     }
 }

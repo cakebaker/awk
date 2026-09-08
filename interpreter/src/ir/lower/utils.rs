@@ -82,7 +82,7 @@ impl TypedArg {
     }
 
     pub fn new_immf(code: &mut CodeGen<'_>, n: f64) -> Self {
-        let cnt = code.register_const(Value::Float(n));
+        let cnt = code.register_const(Value::new_num(n));
         Self(Arg { cnt }, ArgTy::Cnt)
     }
 

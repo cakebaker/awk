@@ -26,6 +26,7 @@ use std::{
 
 use bumpalo::{Bump, collections::Vec};
 use parser::{AriadneSpan, Command, Identifier, MetaId, MetadataStore, Redirection};
+use rc_vec::RcVec;
 use smallvec::SmallVec;
 pub use symbols::SymbolTable;
 
@@ -114,7 +115,7 @@ impl<'a> Interpreter<'a> {
         Self {
             program_counter: 0,
             code_end: 0,
-            registers: Registers(bumpalo::vec![in code.arena; Value::Untyped; n_regs + 1]),
+            registers: Registers(bumpalo::vec![in code.arena; Value::new_untyped(); n_regs + 1]),
             symbols: code.symbols,
             record: Record::new(),
             consts: code.consts,
@@ -170,7 +171,7 @@ impl<'a> Interpreter<'a> {
                 | Instruction::IncrementPre { dest, arg, ty }
                 | Instruction::DecrementPost { dest, arg, ty }
                 | Instruction::DecrementPre { dest, arg, ty } => {
-                    let rhs = &Value::Int(match instr {
+                    let rhs = &Value::new_int(match instr {
                         Instruction::IncrementPost { .. } | Instruction::IncrementPre { .. } => 1,
                         _ => -1,
                     });
@@ -182,7 +183,7 @@ impl<'a> Interpreter<'a> {
                     let (new_val, observed) = self.get_val(arg, *ty, metadata, |old_val| {
                         let new_val = rhs + old_val;
                         let observed = if is_post {
-                            &Value::Int(0) + old_val
+                            &Value::new_int(0) + old_val
                         } else {
                             new_val.clone()
                         };
@@ -286,7 +287,7 @@ impl<'a> Interpreter<'a> {
                 Instruction::Concat { dest, lhs, rhs, tyl, tyr } => {
                     let val = self.get_val2(lhs, tyl, rhs, tyr, metadata, |lhs, rhs| {
                         let mut buf =
-                            StdVec::with_capacity(lhs.string_size_hint() + rhs.string_size_hint());
+                            RcVec::with_capacity(lhs.string_size_hint() + rhs.string_size_hint());
                         lhs.write_string(&mut buf);
                         rhs.write_string(&mut buf);
                         buf
@@ -365,12 +366,12 @@ impl<'a> Interpreter<'a> {
                 Instruction::ConcatMany { dest, start, end } => {
                     let offset = self.reg_offset();
                     let args = self.registers.get_range(start..end, offset);
-                    let mut buf = StdVec::with_capacity(4 * args.len()); // Heuristic
+                    let mut buf = RcVec::with_capacity(4 * args.len()); // Heuristic
 
                     for arg in args {
                         arg.write_string(&mut buf);
                     }
-                    self.write_reg(dest, Value::String(buf.into()));
+                    self.write_reg(dest, Value::new_string(buf));
                 }
                 Instruction::IntrinsicCall { dest, start, end, fun } => {
                     let offset = self.reg_offset();
@@ -423,7 +424,7 @@ impl<'a> Interpreter<'a> {
                 }
                 Instruction::Exit { arg, ty } => {
                     let val = self.get_val(arg, ty, metadata, Value::to_int)?;
-                    return Ok(Signal::Terminal(CtrlSig::Exit(val as i32)));
+                    return Ok(Signal::Terminal(CtrlSig::Exit(val)));
                 }
                 Instruction::Return { arg, ty } => {
                     let val = self.get_val(arg, ty, metadata, Value::clone)?;
@@ -431,7 +432,7 @@ impl<'a> Interpreter<'a> {
                     continue;
                 }
                 Instruction::ReturnUnassigned => {
-                    self.ret(Value::Unassigned);
+                    self.ret(Value::new_unassigned());
                     continue;
                 }
                 Instruction::Next => return Ok(Signal::Terminal(CtrlSig::Next)),
@@ -648,7 +649,8 @@ impl<'a> Interpreter<'a> {
         self.registers.reserve(reg_offset + hwm_regs as IxWidth);
         for reg in call_arity..arity {
             // Fill in remaining arguments / local variables.
-            self.registers.write(Reg(reg), reg_offset, Value::Untyped);
+            self.registers
+                .write(Reg(reg), reg_offset, Value::new_untyped());
         }
 
         // Avoid infinite recursion
@@ -677,7 +679,7 @@ impl<'a> Registers<'a> {
     fn reserve(&mut self, len: IxWidth) {
         let len = len as usize;
         if self.0.len() < len {
-            self.0.resize(len, Value::Untyped);
+            self.0.resize(len, Value::new_untyped());
         }
     }
     #[inline(always)]
@@ -768,7 +770,7 @@ impl Arg {
     ) -> &'v Value<'a> {
         match ty {
             ArgTy::Reg => intrp.read_reg(unsafe { self.reg }),
-            ArgTy::Imm => stack_space.write(Value::Int(unsafe { self.imm } as isize)),
+            ArgTy::Imm => stack_space.write(Value::new_int(unsafe { self.imm })),
             ArgTy::Cnt => &intrp.consts.0[unsafe { self.cnt.0 } as usize],
             ArgTy::UserVal => intrp.symbols.user(unsafe { self.usr }),
             ArgTy::BtInVal if unsafe { self.sys } == BuiltInVar::Nf => {
@@ -781,6 +783,8 @@ impl Arg {
     /// Only exists to make the borrow checker happy. To be used in conjunction
     /// w/ [`Self::read_already_prepared`]. Please, don't use either of these if
     /// you can help it; use [`Self::get_val`] or [`Self::get_val2`] instead.
+    /// The purpose of this function is to trigger value side-effects before
+    /// reading or writing.
     #[inline(always)]
     fn prepare<'a>(
         self,
@@ -791,7 +795,7 @@ impl Arg {
         match ty {
             ArgTy::Reg => intrp.read_reg_mut(unsafe { self.reg }),
             ArgTy::Imm => {
-                stack_space.write(Value::Int(unsafe { self.imm } as isize));
+                stack_space.write(Value::new_int(unsafe { self.imm }));
                 return Some(());
             }
             ArgTy::Cnt => return Some(()),

@@ -62,9 +62,9 @@ impl Interpreter<'_> {
         let name = f.map_or(b"-".as_slice(), |p| p.as_os_str().as_encoded_bytes());
         let errno = res.map_or(0, |e| e.raw_os_error().unwrap_or(-1) as _);
 
-        self.symbols.filename = Value::String(name.to_vec().into());
-        self.symbols.errno = Value::Int(errno);
-        self.symbols.fnr = Value::Int(0);
+        self.symbols.filename = Value::new_string(name.into());
+        self.symbols.errno = Value::new_int(errno);
+        self.symbols.fnr = Value::new_int(0);
         self.record.clear();
     }
 
@@ -74,8 +74,8 @@ impl Interpreter<'_> {
     pub fn read_record(&mut self, reader: impl BufRead) -> Result<bool> {
         // Update vars
         // TODO: optimize and make more ergonomic
-        self.symbols.nr = &self.symbols.fnr + &Value::Int(1);
-        self.symbols.fnr = &self.symbols.fnr + &Value::Int(1);
+        self.symbols.nr = &self.symbols.fnr + &Value::new_int(1);
+        self.symbols.fnr = &self.symbols.fnr + &Value::new_int(1);
 
         // TODO: cache string repr across all values, raw byte sequences.
         let rs = self.symbols.rs.to_string();
@@ -86,7 +86,7 @@ impl Interpreter<'_> {
             }
             // Single char matching
             _ if let Some(c) = rs.chars().next() => {
-                self.symbols.rt = Value::String(rs.into_bytes().into());
+                self.symbols.rt = Value::new_string(rs.as_bytes().into());
                 self.read_record_until_char(c, reader)
             }
             // Empty RS

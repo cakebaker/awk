@@ -13,14 +13,14 @@
 //! Behavior follows the [gawk built-in function](https://www.gnu.org/software/gawk/manual/html_node/Built_002din.html)
 //! documentation. Non-trivial builtins are stubbed with `todo!` until implemented.
 
-use std::borrow::Cow;
-
 use parser::{AriadneSpan, BuiltinFunction};
 
 use crate::{
     InterpreterError,
     vm::{Interpreter, types::Value},
 };
+
+use rc_vec::RcVec as Vec;
 
 /// Bit width used by gawk bitwise ops on ordinary (non-MPFR) numbers.
 const BIT_MASK: u64 = (1u64 << 53) - 1;
@@ -54,15 +54,19 @@ impl<'a> Interpreter<'a> {
         args: &[Value<'a>],
     ) -> Result<Value<'a>, BuiltinError> {
         match fun {
-            BuiltinFunction::Int => Ok(Value::Float(require_args(args, 1, 1)?[0].to_int() as f64)),
-            BuiltinFunction::Sqrt => Ok(Value::Float(require_args(args, 1, 1)?[0].to_num().sqrt())),
-            BuiltinFunction::Exp => Ok(Value::Float(require_args(args, 1, 1)?[0].to_num().exp())),
-            BuiltinFunction::Log => Ok(Value::Float(require_args(args, 1, 1)?[0].to_num().ln())),
-            BuiltinFunction::Sin => Ok(Value::Float(require_args(args, 1, 1)?[0].to_num().sin())),
-            BuiltinFunction::Cos => Ok(Value::Float(require_args(args, 1, 1)?[0].to_num().cos())),
+            BuiltinFunction::Int => {
+                Ok(Value::new_num(require_args(args, 1, 1)?[0].to_int() as f64))
+            }
+            BuiltinFunction::Sqrt => {
+                Ok(Value::new_num(require_args(args, 1, 1)?[0].to_num().sqrt()))
+            }
+            BuiltinFunction::Exp => Ok(Value::new_num(require_args(args, 1, 1)?[0].to_num().exp())),
+            BuiltinFunction::Log => Ok(Value::new_num(require_args(args, 1, 1)?[0].to_num().ln())),
+            BuiltinFunction::Sin => Ok(Value::new_num(require_args(args, 1, 1)?[0].to_num().sin())),
+            BuiltinFunction::Cos => Ok(Value::new_num(require_args(args, 1, 1)?[0].to_num().cos())),
             BuiltinFunction::Atan2 => {
                 let args = require_args(args, 2, 2)?;
-                Ok(Value::Float(args[0].to_num().atan2(args[1].to_num())))
+                Ok(Value::new_num(args[0].to_num().atan2(args[1].to_num())))
             }
             BuiltinFunction::Length => self.builtin_length(args),
             BuiltinFunction::Index => index(args),
@@ -78,15 +82,17 @@ impl<'a> Interpreter<'a> {
             BuiltinFunction::Xor => bitwise_variadic(args, |a, b| a ^ b),
             BuiltinFunction::Compl => {
                 let n = to_bits(&require_args(args, 1, 1)?[0]);
-                Ok(Value::Float((BIT_MASK ^ n) as f64))
+                Ok(Value::new_num((BIT_MASK ^ n) as f64))
             }
             BuiltinFunction::Lshift => shift(args, true),
             BuiltinFunction::Rshift => shift(args, false),
-            BuiltinFunction::Strtonum => Ok(Value::Float(strtonum(&require_args(args, 1, 1)?[0]))),
-            BuiltinFunction::Typeof => Ok(typeof_value(&require_args(args, 1, 1)?[0])),
+            BuiltinFunction::Strtonum => {
+                Ok(Value::new_num(strtonum(&require_args(args, 1, 1)?[0])))
+            }
+            BuiltinFunction::Typeof => Ok(require_args(args, 1, 1)?[0].type_of()),
             BuiltinFunction::Isarray => {
                 let v = &require_args(args, 1, 1)?[0];
-                Ok(Value::Int(matches!(v, Value::Array(_)) as isize))
+                Ok(Value::new_int(v.is_array() as i32))
             }
             // Placeholders — call glue and dispatch exist; bodies come later.
             BuiltinFunction::Split
@@ -113,11 +119,11 @@ impl<'a> Interpreter<'a> {
         match args {
             [] => {
                 // `length()` — length of `$0`. Unassigned/`$0` before input → 0.
-                Ok(Value::Float(
-                    value_length(&Value::String(Cow::Borrowed(self.record.raw()))) as f64,
+                Ok(Value::new_num(
+                    value_length(&Value::new_str(self.record.raw())) as f64,
                 ))
             }
-            [v] => Ok(Value::Float(value_length(v) as f64)),
+            [v] => Ok(Value::new_num(value_length(v) as f64)),
             _ => Err(BuiltinError::Arity { expected: 1, given: args.len() as u8 }),
         }
     }
@@ -137,13 +143,12 @@ const fn require_args<'a, 'b>(
 }
 
 fn value_length(v: &Value<'_>) -> usize {
-    match v {
-        Value::Array(arr) => arr.borrow().len(),
-        other => {
-            let mut buf = Vec::new();
-            other.write_string(&mut buf);
-            buf.len()
-        }
+    if let Some(len) = v.array_len() {
+        len
+    } else {
+        let mut buf = Vec::new();
+        v.write_string(&mut buf);
+        buf.len()
     }
 }
 
@@ -152,13 +157,13 @@ fn index<'a>(args: &[Value<'a>]) -> Result<Value<'a>, BuiltinError> {
     let hay = value_bytes(&args[0]);
     let needle = value_bytes(&args[1]);
     if needle.is_empty() {
-        return Ok(Value::Float(1.));
+        return Ok(Value::new_num(1.));
     }
     let pos = hay
         .windows(needle.len())
         .position(|w| w == needle.as_slice())
         .map_or(0, |i| i + 1);
-    Ok(Value::Float(pos as f64))
+    Ok(Value::new_num(pos as f64))
 }
 
 fn substr<'a>(args: &[Value<'a>]) -> Result<Value<'a>, BuiltinError> {
@@ -172,7 +177,7 @@ fn substr<'a>(args: &[Value<'a>]) -> Result<Value<'a>, BuiltinError> {
         (start as usize).saturating_sub(1)
     };
     if start_idx >= s.len() {
-        return Ok(Value::String(b"".into()));
+        return Ok(Value::new_str(b""));
     }
     let end = if let Some(n) = args.get(2) {
         let n = n.to_int();
@@ -184,7 +189,7 @@ fn substr<'a>(args: &[Value<'a>]) -> Result<Value<'a>, BuiltinError> {
     } else {
         s.len()
     };
-    Ok(Value::String(s[start_idx..end].to_vec().into()))
+    Ok(Value::new_string(s[start_idx..end].into()))
 }
 
 fn map_string<'a>(args: &[Value<'a>], map: impl Fn(u8) -> u8) -> Value<'a> {
@@ -192,7 +197,7 @@ fn map_string<'a>(args: &[Value<'a>], map: impl Fn(u8) -> u8) -> Value<'a> {
     for b in &mut buf {
         *b = map(*b);
     }
-    Value::String(buf.into())
+    Value::new_string(buf)
 }
 
 fn bitwise_variadic<'a>(
@@ -204,7 +209,7 @@ fn bitwise_variadic<'a>(
     for arg in &args[1..] {
         acc = op(acc, to_bits(arg)) & BIT_MASK;
     }
-    Ok(Value::Float(acc as f64))
+    Ok(Value::new_num(acc as f64))
 }
 
 fn shift<'a>(args: &[Value<'a>], left: bool) -> Result<Value<'a>, BuiltinError> {
@@ -212,7 +217,7 @@ fn shift<'a>(args: &[Value<'a>], left: bool) -> Result<Value<'a>, BuiltinError> 
     let shift = args[1].to_int();
     if shift < 0 {
         // FIXME: gawk fatals on negative shift counts; wire a proper runtime error.
-        return Ok(Value::Float(0.));
+        return Ok(Value::new_num(0.));
     }
     let shift = shift as u32;
     let n = to_bits(&args[0]);
@@ -223,7 +228,7 @@ fn shift<'a>(args: &[Value<'a>], left: bool) -> Result<Value<'a>, BuiltinError> 
     } else {
         n >> shift
     };
-    Ok(Value::Float(result as f64))
+    Ok(Value::new_num(result as f64))
 }
 
 fn to_bits(v: &Value<'_>) -> u64 {
@@ -249,18 +254,6 @@ fn strtonum(v: &Value<'_>) -> f64 {
         return u64::from_str_radix(s, 8).map_or(0., |n| n as f64);
     }
     s.parse().unwrap_or(0.)
-}
-
-fn typeof_value<'a>(v: &Value<'_>) -> Value<'a> {
-    let name: &[u8] = match v {
-        Value::Int(_) | Value::Float(_) | Value::Bool(_) => b"number",
-        Value::String(_) => b"string",
-        Value::Regex(_) => b"regexp",
-        Value::Array(_) => b"array",
-        Value::Untyped => b"untyped",
-        Value::Unassigned => b"unassigned",
-    };
-    Value::String(name.into())
 }
 
 fn value_bytes(v: &Value<'_>) -> Vec<u8> {
@@ -290,14 +283,14 @@ mod tests {
         with_intrp(|intrp| {
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::Int, &[Value::Float(3.7)])
+                    .call_builtin(BuiltinFunction::Int, &[Value::new_num(3.7)])
                     .unwrap()
                     .to_num(),
                 3.
             );
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::Int, &[Value::Float(-3.7)])
+                    .call_builtin(BuiltinFunction::Int, &[Value::new_num(-3.7)])
                     .unwrap()
                     .to_num(),
                 -3.
@@ -310,7 +303,10 @@ mod tests {
         with_intrp(|intrp| {
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::Length, &[Value::String(b"abc".into())])
+                    .call_builtin(
+                        BuiltinFunction::Length,
+                        &[Value::new_string(b"abc".as_slice().into())]
+                    )
                     .unwrap()
                     .to_num(),
                 3.
@@ -333,8 +329,8 @@ mod tests {
                     .call_builtin(
                         BuiltinFunction::Index,
                         &[
-                            Value::String(b"foobar".into()),
-                            Value::String(b"bar".into())
+                            Value::new_string(b"foobar".as_slice().into()),
+                            Value::new_string(b"bar".as_slice().into())
                         ],
                     )
                     .unwrap()
@@ -345,9 +341,9 @@ mod tests {
                 .call_builtin(
                     BuiltinFunction::Substr,
                     &[
-                        Value::String(b"abcdef".into()),
-                        Value::Int(2),
-                        Value::Int(3),
+                        Value::new_string(b"abcdef".as_slice().into()),
+                        Value::new_int(2),
+                        Value::new_int(3),
                     ],
                 )
                 .unwrap();
@@ -362,7 +358,10 @@ mod tests {
         with_intrp(|intrp| {
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::And, &[Value::Int(7), Value::Int(3)])
+                    .call_builtin(
+                        BuiltinFunction::And,
+                        &[Value::new_int(7), Value::new_int(3)]
+                    )
                     .unwrap()
                     .to_num(),
                 3.
@@ -371,7 +370,7 @@ mod tests {
                 intrp
                     .call_builtin(
                         BuiltinFunction::Or,
-                        &[Value::Int(1), Value::Int(2), Value::Int(4)],
+                        &[Value::new_int(1), Value::new_int(2), Value::new_int(4)],
                     )
                     .unwrap()
                     .to_num(),
@@ -379,14 +378,17 @@ mod tests {
             );
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::Xor, &[Value::Int(7), Value::Int(3)])
+                    .call_builtin(
+                        BuiltinFunction::Xor,
+                        &[Value::new_int(7), Value::new_int(3)]
+                    )
                     .unwrap()
                     .to_num(),
                 4.
             );
             assert_eq!(
                 intrp
-                    .call_builtin(BuiltinFunction::Compl, &[Value::Int(0)])
+                    .call_builtin(BuiltinFunction::Compl, &[Value::new_int(0)])
                     .unwrap()
                     .to_num(),
                 BIT_MASK as f64
@@ -398,7 +400,7 @@ mod tests {
     fn arity_mismatch_is_reported() {
         with_intrp(|intrp| {
             let err = intrp
-                .call_builtin(BuiltinFunction::And, &[Value::Int(1)])
+                .call_builtin(BuiltinFunction::And, &[Value::new_int(1)])
                 .unwrap_err();
             assert!(matches!(err, BuiltinError::Arity { expected: 2, given: 1 }));
         });
@@ -418,7 +420,10 @@ mod tests {
     #[test]
     fn negative_shift_is_fatal() {
         with_intrp(|intrp| {
-            let err = intrp.call_builtin(BuiltinFunction::Lshift, &[Value::Int(1), Value::Int(-1)]);
+            let err = intrp.call_builtin(
+                BuiltinFunction::Lshift,
+                &[Value::new_int(1), Value::new_int(-1)],
+            );
             assert!(
                 err.is_err(),
                 "expected fatal for negative shift, got {err:?}"
@@ -430,7 +435,10 @@ mod tests {
     #[test]
     fn negative_bitwise_operand_is_fatal() {
         with_intrp(|intrp| {
-            let err = intrp.call_builtin(BuiltinFunction::And, &[Value::Int(-1), Value::Int(1)]);
+            let err = intrp.call_builtin(
+                BuiltinFunction::And,
+                &[Value::new_int(-1), Value::new_int(1)],
+            );
             assert!(
                 err.is_err(),
                 "expected fatal for negative bitwise operand, got {err:?}"

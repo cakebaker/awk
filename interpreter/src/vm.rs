@@ -52,10 +52,11 @@ pub enum ExecMode {
     Posix,
 }
 
-// TODO struct ReentrantPoint that contains PC, code_end, frames and regs.
+// TODO struct ReentrantPoint that contains PC, code_end, offset, frames, regs.
 pub struct Interpreter<'a> {
     program_counter: IxWidth,
     code_end: IxWidth,
+    reg_offset: IxWidth,
     registers: Registers<'a>,
     pub(crate) symbols: SymbolTable<'a>,
     pub(crate) record: Record,
@@ -66,10 +67,10 @@ pub struct Interpreter<'a> {
 }
 
 pub struct CallFrame {
-    reg_offset: IxWidth,
     ret_addr: IxWidth,
-    prev_code_end: IxWidth,
     ret_dest: Reg,
+    prev_code_end: IxWidth,
+    prev_reg_offset: IxWidth,
 }
 
 #[derive(Debug)]
@@ -115,6 +116,7 @@ impl<'a> Interpreter<'a> {
         Self {
             program_counter: 0,
             code_end: 0,
+            reg_offset: 0,
             registers: Registers(bumpalo::vec![in code.arena; Value::new_untyped(); n_regs + 1]),
             symbols: code.symbols,
             record: Record::new(),
@@ -364,8 +366,7 @@ impl<'a> Interpreter<'a> {
                     self.write_reg(dest, val);
                 }
                 Instruction::ConcatMany { dest, start, end } => {
-                    let offset = self.reg_offset();
-                    let args = self.registers.get_range(start..end, offset);
+                    let args = self.read_reg_range(start..end);
                     let mut buf = RcVec::with_capacity(4 * args.len()); // Heuristic
 
                     for arg in args {
@@ -374,8 +375,7 @@ impl<'a> Interpreter<'a> {
                     self.write_reg(dest, Value::new_string(buf));
                 }
                 Instruction::IntrinsicCall { dest, start, end, fun } => {
-                    let offset = self.reg_offset();
-                    let args = self.registers.get_range(start..end, offset);
+                    let args = self.read_reg_range(start..end);
 
                     match self.call_builtin(fun, args) {
                         Ok(val) => self.write_reg(dest, val),
@@ -530,35 +530,38 @@ impl<'a> Interpreter<'a> {
     /// Convenience wrapper to write a value at the current reg slice.
     #[inline(always)]
     fn write_reg(&mut self, dest: Reg, val: impl Into<Value<'a>>) {
-        self.registers.write(dest, self.reg_offset(), val);
+        self.registers.write(dest, self.reg_offset, val);
     }
 
     /// Convenience wrapper to read a value from the current reg slice.
     #[inline(always)]
     fn read_reg(&self, src: Reg) -> &Value<'a> {
-        self.registers.get(src, self.reg_offset())
+        self.registers.get(src, self.reg_offset)
     }
 
     /// Convenience wrapper to read a value from the current reg slice.
     #[inline(always)]
     fn read_reg_mut(&mut self, src: Reg) -> &mut Value<'a> {
-        self.registers.get_mut(src, self.reg_offset())
+        self.registers.get_mut(src, self.reg_offset)
+    }
+
+    /// Convenience wrapper to read ranges from the current reg slice.
+    #[inline(always)]
+    fn read_reg_range(&self, src: Range<Reg>) -> &[Value<'a>] {
+        self.registers.get_range(src, self.reg_offset)
     }
 
     fn ret(&mut self, val: Value<'a>) {
-        let Some(CallFrame { reg_offset: _, ret_addr, prev_code_end, ret_dest }) =
+        let Some(CallFrame { ret_addr, ret_dest, prev_code_end, prev_reg_offset }) =
             self.frames.pop()
         else {
             unreachable!()
         };
-        self.write_reg(ret_dest, val);
+
+        self.registers.write(ret_dest, prev_reg_offset, val);
         self.program_counter = ret_addr;
         self.code_end = prev_code_end;
-    }
-
-    #[inline(always)]
-    fn reg_offset(&self) -> IxWidth {
-        self.frames.last().map_or(0, |frame| frame.reg_offset)
+        self.reg_offset = prev_reg_offset;
     }
 
     /// Resumes execution from a suspend/yield point. Receives the request
@@ -587,7 +590,7 @@ impl<'a> Interpreter<'a> {
         let Command::Print = fun else { todo!() };
         let None = redir else { todo!() };
         let mut buf = StdVec::with_capacity(64);
-        let range = self.registers.get_range(start..end, self.reg_offset());
+        let range = self.read_reg_range(start..end);
 
         if range.is_empty() {
             buf.extend_from_slice(self.record.raw());
@@ -611,7 +614,7 @@ impl<'a> Interpreter<'a> {
 
     /// Join index register values with `SUBSEP` into an array key (gawk-compatible).
     fn make_array_key(&mut self, start: Reg, end: Reg) -> StdVec<u8> {
-        let range = self.registers.get_range(start..end, self.reg_offset());
+        let range = self.read_reg_range(start..end);
         let mut buf = StdVec::new();
         for (i, value) in range.iter().enumerate() {
             if i > 0 {
@@ -630,7 +633,7 @@ impl<'a> Interpreter<'a> {
         name: UserNonLocal,
         metadata: &[MetaId],
     ) -> Result<()> {
-        let reg_offset = start.0 as IxWidth + self.reg_offset();
+        let reg_offset = start.0 as IxWidth + self.reg_offset;
         let Some(&Some(Function { arity, hwm_regs, ref code })) =
             self.symbols.functions.get_index(name)
         else {
@@ -659,13 +662,14 @@ impl<'a> Interpreter<'a> {
         }
 
         self.frames.push(CallFrame {
-            reg_offset,
             ret_addr: self.program_counter + 1,
-            prev_code_end: self.code_end,
             ret_dest: dest,
+            prev_code_end: self.code_end,
+            prev_reg_offset: self.reg_offset,
         });
         self.code_end = code.0.end;
         self.program_counter = code.0.start;
+        self.reg_offset = reg_offset;
         Ok(())
     }
 

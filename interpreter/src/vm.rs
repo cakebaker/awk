@@ -199,7 +199,8 @@ impl<'a> Interpreter<'a> {
                     self.write_reg(dest, val);
                 }
                 Instruction::CopyA { dest, arg, ty } => {
-                    let val = self.get_array(arg, ty, metadata, Value::clone)?;
+                    let place = Place::new(arg, ty);
+                    let val = self.get_array(place, metadata, |arr| Some(arr.clone()))?;
                     self.write_reg(dest, val);
                 }
                 Instruction::CopyP { dest, arg, ty } => {
@@ -300,14 +301,14 @@ impl<'a> Interpreter<'a> {
                 Instruction::IndexS { dest, arg, start, end, ty } => {
                     let key = self.make_array_key(start, end);
                     let place = Place::new(arg, ty);
-                    let val = self.array_op(place, metadata, |arr| arr.get_array_elem(&key))?;
+                    let val = self.get_array(place, metadata, |arr| arr.get_array_elem(&key))?;
 
                     self.write_reg(dest, val);
                 }
                 Instruction::IndexA { dest, arg, start, end, ty } => {
                     let key = self.make_array_key(start, end);
                     let place = Place::new(arg, ty);
-                    let val = self.array_op(place, metadata, |arr| arr.array_elem_aoa(key))?;
+                    let val = self.get_array(place, metadata, |arr| arr.array_elem_aoa(key))?;
 
                     self.write_reg(dest, val);
                 }
@@ -334,30 +335,30 @@ impl<'a> Interpreter<'a> {
                     let val = self.get_val(rhs, tyr, metadata, Value::clone)?;
                     let place = Place::new(lhs, tyl);
 
-                    self.array_op(place, metadata, |arr| arr.array_insert(key, val.clone()))?;
+                    self.get_array(place, metadata, |arr| arr.array_insert(key, val.clone()))?;
                     self.write_reg(dest, val);
                 }
                 Instruction::DeleteA { arg, ty } => {
                     // Remember typedness
-                    self.array_op(Place::new(arg, ty), metadata, Value::reset_array)?;
+                    self.get_array(Place::new(arg, ty), metadata, Value::reset_array)?;
                 }
                 Instruction::DeleteP { arg, ty, start, end } => {
                     let key = self.make_array_key(start, end);
                     // Forget typedness
-                    self.array_op(Place::new(arg, ty), metadata, |arr| arr.array_remove(&key))?;
+                    self.get_array(Place::new(arg, ty), metadata, |arr| arr.array_remove(&key))?;
                 }
                 Instruction::In { dest, lhs, rhs, tyr, tyl } => {
                     let key = self.get_val(rhs, tyr, metadata, Value::clone)?;
                     let key = key.to_bytes();
                     let place = Place::new(lhs, tyl);
-                    let val = self.array_op(place, metadata, |arr| arr.has_array_elem(&key))?;
+                    let val = self.get_array(place, metadata, |arr| arr.has_array_elem(&key))?;
 
                     self.write_reg(dest, val);
                 }
                 Instruction::InA { dest, arg, start, end, ty } => {
                     let key = self.make_array_key(start, end);
                     let place = Place::new(arg, ty);
-                    let val = self.array_op(place, metadata, |arr| arr.has_array_elem(&key))?;
+                    let val = self.get_array(place, metadata, |arr| arr.has_array_elem(&key))?;
 
                     self.write_reg(dest, val);
                 }
@@ -497,7 +498,8 @@ impl<'a> Interpreter<'a> {
         *self.symbols.get_btin_mut(sys) = val;
     }
 
-    fn array_op<T>(
+    /// Convenience wrapper to add errors from context metadata.
+    fn get_array<T>(
         &mut self,
         place: Place,
         metadata: &[MetaId],
@@ -507,20 +509,6 @@ impl<'a> Interpreter<'a> {
             .array(self)
             .and_then(f)
             .ok_or_else(|| InterpreterError::ArrayUseOfScalar(self.get_span(metadata)))
-    }
-
-    /// Convenience wrapper to add errors from context metadata.
-    fn get_array<T>(
-        &mut self,
-        arg: Arg,
-        ty: PlaceTy,
-        metadata: &[MetaId],
-        f: impl FnOnce(&Value<'a>) -> T,
-    ) -> Result<T> {
-        match Place::new(arg, ty).array(self) {
-            Some(val) => Ok(f(val)),
-            None => Err(InterpreterError::ArrayUseOfScalar(self.get_span(metadata))),
-        }
     }
 
     /// Convenience wrapper to write a value at the current reg slice.

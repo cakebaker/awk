@@ -381,6 +381,9 @@ impl Record {
         })
     }
 
+    /// Initializes fields and assigns `$0`. Reuses existing buffer allocation.
+    /// Used to be yet another monad, but we don't need to wrap everything in
+    /// closures if we already have the `Option` monad internally.
     fn init_fields(&mut self) -> (&mut Vec<u8>, &mut Vec<Span>) {
         let buf = self.fields.get_or_insert_default();
         buf.clear();
@@ -389,6 +392,9 @@ impl Record {
         (&mut self.raw, buf)
     }
 
+    /// For `FS = " "`, splitting is magic and splits by one or more neighboring
+    /// ASCII whitespace values (including newlines and tabs). Naïve byte
+    /// searching and iterator magic is also more efficient than regex.
     fn fs_whitespace_split(&mut self) -> &mut Vec<Span> {
         let (raw, buf) = self.init_fields();
         buf.extend(
@@ -400,6 +406,7 @@ impl Record {
         buf
     }
 
+    /// Splits with a naïve byte search. Faster than running a regex engine.
     fn fs_char_split(&mut self, c: char) -> &mut Vec<Span> {
         let mut bytes = [0; 4];
         let bytes = c.encode_utf8(&mut bytes).as_bytes();
@@ -441,6 +448,8 @@ impl Record {
         Ok(buf)
     }
 
+    /// In non-POSIX mode, GNU gives each UTF-8 code point its own field.
+    /// Invalid UTF-8 parts are encoded as raw bytes.
     fn fs_all_split(&mut self) -> &mut Vec<Span> {
         let (raw, buf) = self.init_fields();
         let mut offset = 0;
@@ -458,6 +467,8 @@ impl Record {
         buf
     }
 
+    /// In POSIX mode, GNU emulates One True AWK when the string value of `FS`
+    /// is empty. This is assigning all the record to `$1`.
     fn fs_empty_posix_split(&mut self) -> &mut Vec<Span> {
         let (raw, buf) = self.init_fields();
         buf.reserve_exact(1);
@@ -465,6 +476,8 @@ impl Record {
         buf
     }
 
+    /// Essentially like the `FS` version, but without calculating the span
+    /// intersections via [`SplitByExt::split_by`].
     fn fpat_regex_split(
         &mut self,
         fpat: &[u8],

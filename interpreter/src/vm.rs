@@ -16,13 +16,7 @@ mod regex;
 mod symbols;
 pub mod types;
 
-use std::{
-    fmt::{self, Display},
-    io::Result as IoResult,
-    mem::MaybeUninit,
-    ops::Range,
-    vec::Vec as StdVec,
-};
+use std::{io::Result as IoResult, mem::MaybeUninit, ops::Range, vec::Vec as StdVec};
 
 use bumpalo::{Bump, collections::Vec};
 use parser::{AriadneSpan, Command, Identifier, MetaId, MetadataStore, Redirection};
@@ -696,22 +690,6 @@ impl<'a> Registers<'a> {
     }
 }
 
-impl Display for Interpreter<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}\n", self.registers)?;
-        writeln!(f, "{}\n", self.symbols)?;
-        write!(f, "{}", self.consts)
-    }
-}
-
-impl Display for CodeGen<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}\n", self.bc)?;
-        writeln!(f, "{}\n", self.symbols)?;
-        write!(f, "{}", self.consts)
-    }
-}
-
 impl Arg {
     #[inline(always)]
     fn get_val<'v, 'a>(
@@ -846,78 +824,4 @@ impl Place {
             PlaceTy::BtInVal => intrp.sync_btin_write(unsafe { self.arg.sys }, val),
         }
     }
-}
-
-impl Display for Bytecode<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Bytecode:")?;
-        let n = self.code.len().checked_ilog10().unwrap_or(0) as usize + 1;
-        fmt_list(f, self.code.iter(), |f, i, e| write!(f, "{i:0n$}: {e}"))
-    }
-}
-
-impl Display for Registers<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Registers:")?;
-        let n = self.0.len().checked_ilog10().unwrap_or(0) as usize + 1;
-        fmt_list(f, self.0.iter(), |f, i, e| write!(f, "r{i:0n$} = {e}"))
-    }
-}
-
-impl Display for SymbolTable<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Symbols:")?;
-        fmt_list(f, self.user.iter(), |f, i, (k, v)| {
-            write!(f, "user[{i}] @ {k:?} = {v}")
-        })?;
-        for (name, val) in [
-            ("ARGC", &self.argc),
-            ("ARGIND", &self.argind),
-            ("ARGV", &self.argv),
-            ("BINMODE", &self.binmode),
-            ("CONVFMT", &self.convfmt),
-            ("ERRNO", &self.errno),
-            ("FIELDWIDTHS", &self.fieldwidths),
-            ("FILENAME", &self.filename),
-            ("FNR", &self.fnr),
-            ("FPAT", &self.fpat),
-            ("FS", &self.fs),
-            ("IGNORECASE", &self.ignorecase),
-            ("LINT", &self.lint),
-            ("NR", &self.nr),
-            ("OFMT", &self.ofmt),
-            ("OFS", &self.ofs),
-            ("ORS", &self.ors),
-            ("PREC", &self.prec),
-            ("ROUNDMODE", &self.roundmode),
-            ("RS", &self.rs),
-            ("RT", &self.rt),
-            ("RSTART", &self.rstart),
-            ("RLENGTH", &self.rlength),
-            ("SUBSEP", &self.subsep),
-            ("TEXTDOMAIN", &self.textdomain),
-        ] {
-            write!(f, "\n  builtin {name} = {val}")?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for Consts<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Consts:")?;
-        fmt_list(f, self.0.iter(), |f, i, e| write!(f, "mem[{i}] = {e}"))
-    }
-}
-
-fn fmt_list<'a, T: Copy>(
-    f: &mut fmt::Formatter<'a>,
-    iter: impl Iterator<Item = T>,
-    cb: impl Fn(&mut fmt::Formatter<'a>, usize, T) -> fmt::Result,
-) -> fmt::Result {
-    for (i, e) in iter.enumerate() {
-        write!(f, "\n  ")?;
-        cb(f, i, e)?;
-    }
-    Ok(())
 }

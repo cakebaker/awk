@@ -15,11 +15,11 @@ pub mod lower;
 mod tests;
 
 use std::{
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Display, Formatter},
     ops::Deref,
 };
 
-use derive_more::Display;
+use derive_more::{Debug, Display};
 use parser::{BuiltinFunction, Command, Identifier, Redirection, Variable};
 
 pub type RegWidth = u8;
@@ -33,7 +33,8 @@ pub struct UserNonLocal(pub IxWidth);
 #[repr(transparent)]
 pub struct ConstNonLocal(pub IxWidth);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq)]
+#[display("r{}", self.0)]
 #[repr(transparent)]
 pub struct Reg(pub RegWidth);
 
@@ -127,13 +128,17 @@ pub union Arg {
 }
 
 /// The discriminant of an [`Arg`] union. The fields are ordered the same.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq)]
+#[display(rename_all = "lowercase")]
 #[repr(u8)]
 pub enum ArgTy {
+    #[display("r")]
     Reg,
     Imm,
     Cnt,
+    #[display("user")]
     UserVal,
+    #[display("btin")]
     BtInVal,
 }
 
@@ -329,7 +334,7 @@ impl TryFrom<ArgTy> for PlaceTy {
     }
 }
 
-impl Debug for Instruction {
+impl fmt::Debug for Instruction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "0x{:032x}", self.to_bytes())
     }
@@ -510,24 +515,6 @@ impl Instruction {
             Self::Exit { .. } => "exit",
             Self::Next => "next",
             Self::NextFile => "nextf",
-        }
-    }
-}
-
-impl Display for Reg {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "r{}", self.0)
-    }
-}
-
-impl Display for ArgTy {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Reg => write!(f, "r"),
-            Self::Imm => write!(f, "imm"),
-            Self::Cnt => write!(f, "cnt"),
-            Self::UserVal => write!(f, "user"),
-            Self::BtInVal => write!(f, "btin"),
         }
     }
 }

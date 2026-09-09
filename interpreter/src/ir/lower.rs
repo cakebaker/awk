@@ -5,7 +5,11 @@
 
 mod utils;
 
-use std::{mem::replace, vec::Vec as StdVec};
+use std::{
+    fmt::{self, Display},
+    mem::replace,
+    vec::Vec as StdVec,
+};
 
 use bumpalo::{Bump, collections::Vec};
 use parser::{
@@ -1201,5 +1205,17 @@ const fn unary_place_to_binop(op: UnaryPlaceOperator) -> BinaryOperator {
     match op {
         UnaryPlaceOperator::IncrementL | UnaryPlaceOperator::IncrementR => BinaryOperator::Add,
         UnaryPlaceOperator::DecrementL | UnaryPlaceOperator::DecrementR => BinaryOperator::Subtract,
+    }
+}
+
+impl Display for Bytecode<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let n = self.code.len().checked_ilog10().unwrap_or(0) as usize + 1;
+
+        writeln!(f, "Bytecode: {{")?;
+        for (i, e) in self.code.iter().enumerate() {
+            write!(f, "{i:0n$}: {e}")?;
+        }
+        write!(f, "}}")
     }
 }

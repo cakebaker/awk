@@ -29,6 +29,7 @@ use crate::{
 pub(super) struct RawSymbolTable<'a, T>(IndexMap<Identifier<'a>, T, RandomState, &'a Bump>);
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SymbolTable<'a> {
     pub(super) user: RawSymbolTable<'a, Value<'a>>,
     pub(super) functions: RawSymbolTable<'a, Option<Function>>,
@@ -167,11 +168,6 @@ impl<'a, T> RawSymbolTable<'a, T> {
         self.0
             .get_index_of(ident)
             .map(|ix| (UserNonLocal(ix.try_into().unwrap()), &mut self.0[ix]))
-    }
-
-    #[inline(always)]
-    pub(super) fn iter(&self) -> impl Iterator<Item = (&Identifier<'a>, &T)> {
-        self.0.iter()
     }
 }
 
